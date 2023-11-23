@@ -35,6 +35,7 @@ pub struct Nic {
     netmask: Option<Address>,
     gateway: Option<Address>,
     if_type: u32,
+    mac_address: String,
 }
 
 fn sockaddr_to_ipv4(sa: SOCKET_ADDRESS) -> Option<Address> {
@@ -159,6 +160,18 @@ impl Nic {
     pub fn if_type(&self) -> u32 {
         self.if_type
     }
+
+    pub fn mac_address(&self) -> &str {
+        &self.mac_address
+    }
+}
+
+fn format_mac_address(mac: &[u8], len: ULONG) -> String {
+    mac.iter()
+        .take(len as usize)
+        .map(|byte| format!("{:02X}", byte))
+        .collect::<Vec<String>>()
+        .join(":")
 }
 
 pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
@@ -215,6 +228,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
         let is_up;
         let mut cur_address;
         let iface_tye;
+        let mac_address;
 
         unsafe {
             iface_index = cur_iface.u.s().IfIndex;
@@ -223,6 +237,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             cur_address = *(cur_iface.FirstUnicastAddress);
             is_up = cur_iface.OperStatus == IfOperStatusUp;
             iface_tye = cur_iface.IfType;
+            mac_address = format_mac_address(&cur_iface.PhysicalAddress, cur_iface.PhysicalAddressLength);
         }
         let iface_guid = iface_guid_cstr
             .to_str()
@@ -239,6 +254,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             netmask: None,
             gateway: None,
             if_type: iface_tye,
+            mac_address,
         };
  
         let mut ipv4_gateway_addresses: Vec<Address> = Vec::new();

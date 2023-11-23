@@ -81,6 +81,11 @@ impl Nic {
     pub fn if_type(&self) -> u32 {
         self.as_ref().if_type()
     }
+
+    /// Returns primary mac address.
+    pub fn mac_address(&self) -> &str {
+        self.as_ref().mac_address()
+    }
 }
 
 impl fmt::Debug for Nic {
@@ -94,6 +99,7 @@ impl fmt::Debug for Nic {
             .field("is_loopback", &self.is_loopback())
             .field("is_multicast", &self.is_multicast())
             .field("if_type", &self.if_type())
+            .field("mac_address", &self.mac_address())
             .finish()
     }
 }
