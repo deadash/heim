@@ -1,4 +1,5 @@
 use heim_common::prelude::*;
+use winapi::um::iptypes::GAA_FLAG_INCLUDE_GATEWAYS;
 
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -32,6 +33,8 @@ pub struct Nic {
     is_up: bool,
     address: Option<Address>,
     netmask: Option<Address>,
+    gateway: Option<Address>,
+    if_type: u32,
 }
 
 fn sockaddr_to_ipv4(sa: SOCKET_ADDRESS) -> Option<Address> {
@@ -125,7 +128,7 @@ impl Nic {
 
     pub fn destination(&self) -> Option<Address> {
         // TODO: we could implement something one day
-        None
+        self.gateway
     }
 
     pub fn is_up(&self) -> bool {
@@ -152,6 +155,10 @@ impl Nic {
             _ => false,
         }
     }
+
+    pub fn if_type(&self) -> u32 {
+        self.if_type
+    }
 }
 
 pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
@@ -159,8 +166,8 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
 
     // Step 1 - get the size of the routing infos
     let family = AF_UNSPEC; // retrieve both IPv4 and IPv6 interfaces
-    let flags: ULONG = GAA_FLAG_INCLUDE_PREFIX;
-    let mut empty_list = IP_ADAPTER_ADDRESSES::default();
+    let flags: ULONG = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_INCLUDE_GATEWAYS;
+    let mut empty_list: IP_ADAPTER_ADDRESSES = unsafe { std::mem::zeroed() };
     let mut data_size: ULONG = 0;
     let res =
         unsafe { GetAdaptersAddresses(family as _, flags, NULL, &mut empty_list, &mut data_size) };
@@ -207,6 +214,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
         let iface_fname_ucstr;
         let is_up;
         let mut cur_address;
+        let iface_tye;
 
         unsafe {
             iface_index = cur_iface.u.s().IfIndex;
@@ -214,6 +222,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             iface_fname_ucstr = UCStr::from_ptr_str(cur_iface.FriendlyName);
             cur_address = *(cur_iface.FirstUnicastAddress);
             is_up = cur_iface.OperStatus == IfOperStatusUp;
+            iface_tye = cur_iface.IfType;
         }
         let iface_guid = iface_guid_cstr
             .to_str()
@@ -228,29 +237,59 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             is_up,
             address: None,
             netmask: None,
+            gateway: None,
+            if_type: iface_tye,
         };
-
+ 
+        let mut ipv4_gateway_addresses: Vec<Address> = Vec::new();
+        let mut ipv6_gateway_addresses: Vec<Address> = Vec::new();
+        unsafe {
+            let mut gateway_struct = cur_iface.FirstGatewayAddress;
+            while !gateway_struct.is_null() {
+                let gateway_struct_ref = &*gateway_struct;
+                let sa_family = (*gateway_struct_ref.Address.lpSockaddr).sa_family as i32;
+    
+                match sa_family {
+                    AF_INET => {
+                        if let Some(gateway) = sockaddr_to_ipv4(gateway_struct_ref.Address) {
+                            ipv4_gateway_addresses.push(gateway); // 收集IPv4网关地址
+                        }
+                    },
+                    AF_INET6 => {
+                        if let Some(gateway) = sockaddr_to_ipv6(gateway_struct_ref.Address) {
+                            ipv6_gateway_addresses.push(gateway); // 收集IPv6网关地址
+                        }
+                    },
+                    _ => {}
+                }
+    
+                gateway_struct = gateway_struct_ref.Next;
+            }
+        }
         // Walk through every IP address of this interface
         loop {
             let this_socket_address = cur_address.Address;
             let this_netmask_length = cur_address.OnLinkPrefixLength;
             let this_sa_family = unsafe { (*this_socket_address.lpSockaddr).sa_family };
 
-            let (this_address, this_netmask) = match this_sa_family as i32 {
+            let (this_address, this_netmask, this_gateway) = match this_sa_family as i32 {
                 AF_INET => (
                     sockaddr_to_ipv4(this_socket_address),
                     Some(ipv4_netmask_address_from(this_netmask_length)),
+                    ipv4_gateway_addresses.first().copied(),
                 ),
                 AF_INET6 => (
                     sockaddr_to_ipv6(this_socket_address),
                     Some(ipv6_netmask_address_from(this_netmask_length)),
+                    ipv6_gateway_addresses.first().copied(),
                 ),
-                _ => (None, None),
+                _ => (None, None, None),
             };
 
             let mut this_nic = base_nic.clone();
             this_nic.address = this_address;
             this_nic.netmask = this_netmask;
+            this_nic.gateway = this_gateway;
             results.push(Ok(this_nic));
 
             let next_address = cur_address.Next;

@@ -76,6 +76,11 @@ impl Nic {
     pub fn is_multicast(&self) -> bool {
         self.as_ref().is_multicast()
     }
+
+    /// Returns `u32` IfType
+    pub fn if_type(&self) -> u32 {
+        self.as_ref().if_type()
+    }
 }
 
 impl fmt::Debug for Nic {
@@ -88,6 +93,7 @@ impl fmt::Debug for Nic {
             .field("is_up", &self.is_up())
             .field("is_loopback", &self.is_loopback())
             .field("is_multicast", &self.is_multicast())
+            .field("if_type", &self.if_type())
             .finish()
     }
 }
