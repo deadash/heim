@@ -226,7 +226,6 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
         let iface_guid_cstr;
         let iface_fname_ucstr;
         let is_up;
-        let mut cur_address;
         let iface_tye;
         let mac_address;
 
@@ -234,7 +233,6 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             iface_index = cur_iface.u.s().IfIndex;
             iface_guid_cstr = CStr::from_ptr(cur_iface.AdapterName);
             iface_fname_ucstr = UCStr::from_ptr_str(cur_iface.FriendlyName);
-            cur_address = *(cur_iface.FirstUnicastAddress);
             is_up = cur_iface.OperStatus == IfOperStatusUp;
             iface_tye = cur_iface.IfType;
             mac_address = format_mac_address(&cur_iface.PhysicalAddress, cur_iface.PhysicalAddressLength);
@@ -282,8 +280,11 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
                 gateway_struct = gateway_struct_ref.Next;
             }
         }
+        let mut cur_address_ptr = cur_iface.FirstUnicastAddress;
         // Walk through every IP address of this interface
-        loop {
+        while !cur_address_ptr.is_null() {
+            let cur_address = unsafe { &*cur_address_ptr };
+            
             let this_socket_address = cur_address.Address;
             let this_netmask_length = cur_address.OnLinkPrefixLength;
             let this_sa_family = unsafe { (*this_socket_address.lpSockaddr).sa_family };
@@ -308,11 +309,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             this_nic.gateway = this_gateway;
             results.push(Ok(this_nic));
 
-            let next_address = cur_address.Next;
-            if next_address.is_null() {
-                break;
-            }
-            cur_address = unsafe { *next_address };
+            cur_address_ptr = cur_address.Next;
         }
 
         let next_item = cur_iface.Next;
