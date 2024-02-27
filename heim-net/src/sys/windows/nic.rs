@@ -1,5 +1,6 @@
 use heim_common::prelude::*;
 use winapi::um::iptypes::GAA_FLAG_INCLUDE_GATEWAYS;
+use winapi::um::iptypes::IP_ADAPTER_DHCP_ENABLED;
 
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -36,6 +37,7 @@ pub struct Nic {
     gateway: Option<Address>,
     if_type: u32,
     mac_address: String,
+    is_dhcp: bool,
 }
 
 fn sockaddr_to_ipv4(sa: SOCKET_ADDRESS) -> Option<Address> {
@@ -164,6 +166,10 @@ impl Nic {
     pub fn mac_address(&self) -> &str {
         &self.mac_address
     }
+
+    pub fn is_dhcp(&self) -> bool {
+        self.is_dhcp
+    }
 }
 
 fn format_mac_address(mac: &[u8], len: ULONG) -> String {
@@ -228,6 +234,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
         let is_up;
         let iface_tye;
         let mac_address;
+        let is_dhcp;
 
         unsafe {
             iface_index = cur_iface.u.s().IfIndex;
@@ -236,6 +243,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             is_up = cur_iface.OperStatus == IfOperStatusUp;
             iface_tye = cur_iface.IfType;
             mac_address = format_mac_address(&cur_iface.PhysicalAddress, cur_iface.PhysicalAddressLength);
+            is_dhcp = cur_iface.Flags & IP_ADAPTER_DHCP_ENABLED != 0;
         }
         let iface_guid = iface_guid_cstr
             .to_str()
@@ -253,6 +261,7 @@ pub async fn nic() -> Result<impl Stream<Item = Result<Nic>> + Send + Sync> {
             gateway: None,
             if_type: iface_tye,
             mac_address,
+            is_dhcp,
         };
  
         let mut ipv4_gateway_addresses: Vec<Address> = Vec::new();

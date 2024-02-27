@@ -86,6 +86,11 @@ impl Nic {
     pub fn mac_address(&self) -> &str {
         self.as_ref().mac_address()
     }
+
+    /// Determines if DHCP is enabled for this adapter by checking the `Dhcpv4Enabled` flag in the `Flags` field.
+    pub fn is_dhcp(&self) -> bool {
+        self.as_ref().is_dhcp()
+    }
 }
 
 impl fmt::Debug for Nic {
